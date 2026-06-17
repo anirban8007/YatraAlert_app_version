@@ -1,0 +1,21 @@
+
+# Ignore everything outside the project folder
+../
+
+# Ignore standard heavy folders
+node_modules/
+.git/
+android/
+ios/
+.expo/
+.gradle/
+.idea/
+.vscode/
+
+# Ignore log files
+*.log
+*.lock
+
+# Ignore system/cache files
+.DS_Store
+.config/
