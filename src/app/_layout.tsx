@@ -4,6 +4,21 @@ import { AuthProvider, useAuth } from '../context/AuthContext';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import * as TaskManager from 'expo-task-manager';
+
+const BACKGROUND_LOCATION_TASK = 'background-location-task';
+
+TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
+  if (error) {
+    console.error("Background Location Error:", error);
+    return;
+  }
+  if (data) {
+    // Just receiving locations keeps the foreground service alive
+    // so that the app doesn't reset when minimized.
+    // console.log("Background location received");
+  }
+});
 
 GoogleSignin.configure({
   webClientId: 'YOUR_WEB_CLIENT_ID_FROM_GOOGLE_CLOUD', 

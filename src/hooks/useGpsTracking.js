@@ -3,6 +3,8 @@ import * as Location from 'expo-location';
 import { useApp } from '../context/AppContext';
 import { useKalmanFilter } from './useKalmanFilter';
 
+const BACKGROUND_LOCATION_TASK = 'background-location-task';
+
 export function useGpsTracking() {
   const { setCurrentLat, setCurrentLng } = useApp();
   const latFilter = useKalmanFilter();
@@ -13,12 +15,36 @@ export function useGpsTracking() {
     let isMounted = true;
 
     async function startTracking() {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.warn('Location permission denied');
+      // 1. Request Foreground
+      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+      if (fgStatus !== 'granted') {
+        console.warn('Foreground location permission denied');
         return;
       }
 
+      // 2. Request Background
+      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+      if (bgStatus !== 'granted') {
+        console.warn('Background location permission denied');
+        // We can still continue with foreground only
+      }
+
+      // 3. Start Background tracking (keeps the app alive when minimized)
+      if (bgStatus === 'granted') {
+        await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 5000,
+          distanceInterval: 10,
+          foregroundService: {
+            notificationTitle: 'YatraAlert Active',
+            notificationBody: 'Tracking your location to trigger alarm',
+            notificationColor: '#EF4444',
+          },
+          showsBackgroundLocationIndicator: true,
+        });
+      }
+
+      // 4. Start Foreground polling for immediate UI updates
       subscription.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
@@ -42,6 +68,7 @@ export function useGpsTracking() {
       if (subscription.current) {
         subscription.current.remove();
       }
+      Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {});
     };
   }, []);
 }
