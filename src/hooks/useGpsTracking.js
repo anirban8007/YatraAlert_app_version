@@ -7,12 +7,21 @@ const BACKGROUND_LOCATION_TASK = 'background-location-task';
 
 export function useGpsTracking() {
   const { setCurrentLat, setCurrentLng } = useApp();
-  const latFilter = useKalmanFilter();
-  const lngFilter = useKalmanFilter();
+  // Use useRef to persist Kalman filters across renders
+  const latFilterRef = useRef(null);
+  const lngFilterRef = useRef(null);
   const subscription = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
+
+    // Initialize filters once inside useEffect
+    if (!latFilterRef.current) {
+      latFilterRef.current = useKalmanFilter();
+    }
+    if (!lngFilterRef.current) {
+      lngFilterRef.current = useKalmanFilter();
+    }
 
     async function startTracking() {
       // 1. Request Foreground
@@ -53,8 +62,8 @@ export function useGpsTracking() {
         },
         (position) => {
           if (!isMounted) return;
-          const smoothLat = latFilter.filter(position.coords.latitude);
-          const smoothLng = lngFilter.filter(position.coords.longitude);
+          const smoothLat = latFilterRef.current.filter(position.coords.latitude);
+          const smoothLng = lngFilterRef.current.filter(position.coords.longitude);
           setCurrentLat(smoothLat);
           setCurrentLng(smoothLng);
         }
@@ -70,5 +79,5 @@ export function useGpsTracking() {
       }
       Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {});
     };
-  }, []);
+  }, [setCurrentLat, setCurrentLng]);
 }

@@ -106,10 +106,10 @@ export default function HomeScreen() {
     if (hasSosContacts && !isSosActive) setShowCountdown(true);
   });
 
-  // ── 4. Live ETA Refresh & Offline Countdown ──────────────
+  // ── 4. Live ETA Refresh & Offline Countdown (FIXED: No race condition) ──────────────
   useEffect(() => {
-    let apiInterval;
-    let offlineInterval;
+    let updateInterval;
+    let lastOfflineTime = Date.now();
     
     const checkNetwork = async () => {
       try {
@@ -121,45 +121,47 @@ export default function HomeScreen() {
     };
 
     if (destLat && destLng && currentLat && currentLng) {
-      // API Fetch Loop (Every 60s)
-      apiInterval = setInterval(async () => {
+      // Consolidated Update Loop (Every 60s)
+      updateInterval = setInterval(async () => {
         const offline = await checkNetwork();
+        
         if (!offline) {
+          // Online: Fetch fresh data from API
           try {
             const data = await getDirections(currentLat, currentLng, destLat, destLng);
             if (data.geometry) {
               setRouteDistance(data.distance_km);
               setRouteTime(data.time_str);
               setCurrentDurationMin(data.duration_min);
+              lastOfflineTime = Date.now(); // Reset offline counter
             }
           } catch (e) {
-            console.warn("ETA Refresh skipped", e);
+            console.warn("ETA Refresh failed", e);
+          }
+        } else {
+          // Offline: Decrement counters based on elapsed time
+          const timeSinceLastUpdate = (Date.now() - lastOfflineTime) / 1000; // seconds
+          if (timeSinceLastUpdate >= 60) {
+            setCurrentDurationMin((prev) => {
+              if (prev && prev > 1) return prev - 1;
+              return prev;
+            });
+            setRouteTime((prev) => {
+              if (!prev) return prev;
+              const num = parseInt(prev.split(' ')[0]);
+              if (!isNaN(num) && num > 1) return `${num - 1} min (est.)`;
+              return prev;
+            });
+            lastOfflineTime = Date.now();
           }
         }
-      }, 60000);
-
-      // Offline Countdown Loop (Every 60s)
-      offlineInterval = setInterval(() => {
-        if (isOffline) {
-          setCurrentDurationMin((prev) => {
-            if (prev && prev > 1) return prev - 1;
-            return prev;
-          });
-          setRouteTime((prev) => {
-             if (!prev) return prev;
-             const num = parseInt(prev.split(' ')[0]);
-             if (!isNaN(num) && num > 1) return `${num - 1} min (est.)`;
-             return prev;
-          });
-        }
-      }, 60000);
+      }, 60000); // 60-second interval
     }
     
     return () => {
-      clearInterval(apiInterval);
-      clearInterval(offlineInterval);
+      if (updateInterval) clearInterval(updateInterval);
     };
-  }, [destLat, destLng, currentLat, currentLng, isOffline]);
+  }, [destLat, destLng, currentLat, currentLng]);
 
   // ── 5. Search Destination Handler ─────────────────────────────
   const handleSelectDestination = async (location) => {

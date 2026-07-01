@@ -25,10 +25,13 @@ export default function SosModal({ visible, onClose, onComplete }) {
       setContacts(newContacts);
       setName(''); setCode(''); setError('');
 
-      if (contactIndex < contactCount - 1) {
-        setContactIndex(contactIndex + 1);
-      } else {
+      // Check if this is the last contact
+      if (contactIndex + 1 >= contactCount) {
+        // Move to message step
         setStep('message');
+      } else {
+        // Move to next contact
+        setContactIndex(contactIndex + 1);
       }
     } else {
       setError(data.error || 'Invalid code');
@@ -74,10 +77,10 @@ export default function SosModal({ visible, onClose, onComplete }) {
             <>
               <Text style={styles.title}>Contact {contactIndex + 1} of {contactCount}</Text>
               <Text style={styles.instructions}>
-                1. Open Telegram{'\n'}
-                2. Search @YatraAlertbot{'\n'}
-                3. Press Start{'\n'}
-                4. Send ANY 5-digit code to the bot (e.g. 12345){'\n'}
+                1. Open Telegram{('\n')}
+                2. Search @YatraAlertbot{('\n')}
+                3. Press Start{('\n')}
+                4. Send ANY 5-digit code to the bot (e.g. 12345){('\n')}
                 5. Enter the exact same 5-digit code below
               </Text>
               <TextInput style={styles.input} placeholder="Contact Name"
@@ -88,7 +91,7 @@ export default function SosModal({ visible, onClose, onComplete }) {
               {error ? <Text style={styles.error}>{error}</Text> : null}
               <TouchableOpacity style={styles.btn} onPress={handleVerify}>
                 <Text style={styles.btnText}>
-                  {contactIndex === contactCount - 1 ? 'Verify & Finish ✓' : 'Verify & Next →'}
+                  {contactIndex + 1 === contactCount ? 'Verify & Finish ✓' : 'Verify & Next →'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>

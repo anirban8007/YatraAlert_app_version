@@ -33,12 +33,13 @@ export default function SearchBar({ onSelectDestination }) {
         setSuggestions(data || []);
       } catch (e) {
         console.warn("Suggestion error", e);
+        setSuggestions([]);
       }
       setLoading(false);
     }, 300); // 300ms debounce
     
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, currentLat, currentLng]);
 
   const saveToHistory = async (item) => {
     let newHistory = history.filter(h => h.label !== item.label);
@@ -58,10 +59,23 @@ export default function SearchBar({ onSelectDestination }) {
     // If we need strict coordinates, geocode the label
     if (!item.lat || !item.lng) {
       setLoading(true);
-      const geo = await geocode(item.label);
+      try {
+        const geo = await geocode(item.label);
+        if (geo && geo.lat && geo.lng) {
+          await saveToHistory(geo);
+          onSelectDestination(geo);
+        } else {
+          throw new Error('Invalid geocoding result');
+        }
+      } catch (e) {
+        console.error("Geocoding error:", e);
+        // Fallback: use the original item if it has partial coordinates
+        if (item.label) {
+          await saveToHistory(item);
+          onSelectDestination(item);
+        }
+      }
       setLoading(false);
-      await saveToHistory(geo);
-      onSelectDestination(geo);
     } else {
       await saveToHistory(item);
       onSelectDestination(item);
