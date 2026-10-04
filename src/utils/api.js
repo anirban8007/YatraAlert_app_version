@@ -83,7 +83,7 @@ export async function getDirections(origLat, origLng, destLat, destLng) {
 
         return {
           distance_km,
-          time_str: `${time_str} (Ola Maps)`,
+          time_str: time_str,
           duration_min,
           geometry,
           source: "olamaps"
@@ -119,7 +119,7 @@ export async function getDirections(origLat, origLng, destLat, destLng) {
 
           return {
             distance_km,
-            time_str: `${time_str} (Ola Maps)`,
+            time_str: time_str,
             duration_min,
             geometry,
             source: "olamaps"
@@ -146,7 +146,7 @@ export async function getDirections(origLat, origLng, destLat, destLng) {
 
       return {
         distance_km,
-        time_str: `${time_str} (est.)`,
+        time_str: time_str,
         duration_min,
         geometry: route.geometry,
         source: "osrm"
@@ -159,12 +159,9 @@ export async function getDirections(origLat, origLng, destLat, destLng) {
   throw new Error("Could not fetch route from Ola Maps or fallback.");
 }
 
-export async function sendSos(lat, lng, chatIds, customMessage, updateNumber) {
-  const { data, error } = await supabase.functions.invoke('yatra-api', {
-    body: {
-      action: 'sos/send',
-      payload: { lat, lng, chat_ids: chatIds, custom_message: customMessage, update_number: updateNumber }
-    }
+export async function sendSos(lat, lng, travelerId) {
+  const { data, error } = await supabase.functions.invoke('sos-dispatch', {
+    body: { latitude: lat, longitude: lng, traveler_id: travelerId }
   });
   if (error) throw new Error(error.message);
   return data;

@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="expo.modules.speech-56.0.3-sources">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/node_modules/expo-speech/local-maven-repo/host/exp/exponent/expo.modules.speech/56.0.3/expo.modules.speech-56.0.3-sources.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

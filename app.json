@@ -23,6 +23,7 @@
         "ACCESS_BACKGROUND_LOCATION",
         "VIBRATE",
         "WAKE_LOCK",
+        "RECEIVE_BOOT_COMPLETED",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
@@ -55,7 +56,9 @@
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
-      ]
+      ],
+      "expo-web-browser",
+      "@rnmapbox/maps"
     ],
     "experiments": {
       "typedRoutes": true,

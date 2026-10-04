@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="expo.modules.ui-56.0.23-sources">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/node_modules/@expo/ui/local-maven-repo/expo/modules/ui/expo.modules.ui/56.0.23/expo.modules.ui-56.0.23-sources.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

@@ -1,4 +1,9 @@
 import { supabase } from './api';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
+import { Platform } from 'react-native';
+
+WebBrowser.maybeCompleteAuthSession();
 
 // Validation functions
 export const validateEmail = (email) => {
@@ -79,35 +84,62 @@ export async function signInWithEmail(email, password) {
   }
 }
 
-// Google Authentication (React Native — uses native GoogleSignin + Supabase ID token exchange)
+// Google Authentication (Native GoogleSignin with Supabase OAuth fallback for Expo Go / Web)
 export async function signInWithGoogle() {
   try {
     const { getGoogleSignin, isGoogleAuthAvailable } = require('./googleAuth');
-    
-    if (!isGoogleAuthAvailable()) {
-      return { error: 'Google Sign-In is not available in this build. Use email/password instead.' };
+
+    if (isGoogleAuthAvailable()) {
+      const GoogleSignin = getGoogleSignin();
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+
+      const idToken = userInfo?.data?.idToken || userInfo?.idToken;
+      if (!idToken) {
+        return { error: 'Could not get ID token from Google. Please try again.' };
+      }
+
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: idToken,
+      });
+
+      if (error) return { error: error.message };
+      return { success: true, user: data.user, session: data.session };
     }
 
-    const GoogleSignin = getGoogleSignin();
-    await GoogleSignin.hasPlayServices();
-    const userInfo = await GoogleSignin.signIn();
-
-    // Support both old and new SDK response shapes
-    const idToken = userInfo?.data?.idToken || userInfo?.idToken;
-    
-    if (!idToken) {
-      return { error: 'Could not get ID token from Google. Please try again.' };
-    }
-
-    // Exchange the Google ID token with Supabase to create a session
-    const { data, error } = await supabase.auth.signInWithIdToken({
+    // Fallback for Expo Go / Web using WebBrowser OAuth flow
+    const redirectUrl = Linking.createURL('/auth/callback');
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      token: idToken,
+      options: {
+        redirectTo: redirectUrl,
+        skipBrowserRedirect: Platform.OS !== 'web',
+      },
     });
 
     if (error) return { error: error.message };
-    return { success: true, user: data.user, session: data.session };
 
+    if (Platform.OS !== 'web' && data?.url) {
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+      if (result.type === 'success' && result.url) {
+        const urlParams = new URLSearchParams(result.url.split('#')[1] || result.url.split('?')[1]);
+        const accessToken = urlParams.get('access_token');
+        const refreshToken = urlParams.get('refresh_token');
+
+        if (accessToken && refreshToken) {
+          const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (sessionError) return { error: sessionError.message };
+          return { success: true, user: sessionData.user, session: sessionData.session };
+        }
+      }
+      return { error: 'Google sign-in was not completed.' };
+    }
+
+    return { success: true };
   } catch (e) {
     if (e.code === 'SIGN_IN_CANCELLED') {
       return { error: 'Sign-in was cancelled.' };

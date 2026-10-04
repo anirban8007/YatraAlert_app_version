@@ -29,7 +29,8 @@ export function configureGoogleSignin(webClientId?: string) {
   if (isGoogleSigninSupported && GoogleSigninModule) {
     try {
       GoogleSigninModule.configure({
-        webClientId: webClientId || 'YOUR_WEB_CLIENT_ID_FROM_GOOGLE_CLOUD',
+        webClientId: webClientId || '17638648884-acko4iollk282l70tkluspv7jo7doeit.apps.googleusercontent.com',
+        offlineAccess: false,
       });
     } catch (err) {
       console.warn('Failed to configure GoogleSignin:', err);

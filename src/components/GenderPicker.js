@@ -37,7 +37,7 @@ export default function GenderPicker({ visible, defaultName = '', onSave }) {
             <Text style={styles.emoji}>🆘</Text>
             <Text style={styles.title}>Emergency Profile</Text>
             <Text style={styles.subtitle}>
-              This info personalizes your SOS alerts sent to contacts via Telegram.
+              This info personalizes your SOS alerts.
             </Text>
 
             {/* Name Input */}

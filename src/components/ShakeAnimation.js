@@ -1,8 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Animated, Text, View, StyleSheet } from 'react-native';
 
 export default function ShakeAnimation() {
-  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const [shakeAnim] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     // Creates a continuous looping shake animation

@@ -1,17 +1,11 @@
 import { useRef, useState } from 'react';
-import { getJSON } from '../utils/storage';
 import { useApp } from '../context/AppContext';
-import { sendSos } from '../utils/api';
-
-// Maps gender to the correct pronoun for Telegram messages
-function getPronoun(gender) {
-  if (gender === 'male') return 'him';
-  if (gender === 'female') return 'her';
-  return 'them'; // 'other' or null
-}
+import { useRole } from '../context/RoleContext';
+import { sendSos, supabase } from '../utils/api';
 
 export function useSosTracking() {
   const { currentLat, currentLng, userProfile } = useApp();
+  const { userId } = useRole();
   const [isSosActive, setIsSosActive] = useState(false);
   const [updateCount, setUpdateCount] = useState(0);
   const intervalRef = useRef(null);
@@ -19,19 +13,12 @@ export function useSosTracking() {
   // Build the personalized SOS message using stored name & gender
   function buildSosMessage() {
     const name = userProfile?.name || 'Someone';
-    const pronoun = getPronoun(userProfile?.gender);
-    return `🚨 ${name} needs help! Please call ${pronoun}.`;
+    return `🚨 ${name} needs help!`;
   }
 
   async function triggerAlert(count) {
-    const contacts = await getJSON('sosContacts', []);
-    if (contacts.length === 0) return;
-
-    const chatIds = contacts.map(c => c.chat_id);
-    const message = buildSosMessage();
-
     try {
-      await sendSos(currentLat, currentLng, chatIds, message, count);
+      await sendSos(currentLat, currentLng, userId);
     } catch (e) {
       console.warn("Failed to send SOS:", e);
     }
@@ -62,17 +49,15 @@ export function useSosTracking() {
     setIsSosActive(false);
     setUpdateCount(0);
 
-    // Send a cancellation message
-    const contacts = await getJSON('sosContacts', []);
-    if (contacts.length > 0) {
-      const chatIds = contacts.map(c => c.chat_id);
-      const name = userProfile?.name || 'The user';
-      const msg = autoStopped
-        ? `✅ SOS tracking ended. ${name} is safe.`
-        : `✅ SOS cancelled by ${name}. They are safe now.`;
-      try {
-        await sendSos(currentLat, currentLng, chatIds, msg, 0);
-      } catch(e) {}
+    try {
+      // Mark active alerts as resolved in Supabase
+      await supabase
+        .from('sos_alerts')
+        .update({ status: 'resolved' })
+        .eq('traveler_id', userId)
+        .eq('status', 'active');
+    } catch (e) {
+      console.warn("Failed to resolve SOS:", e);
     }
   }
 

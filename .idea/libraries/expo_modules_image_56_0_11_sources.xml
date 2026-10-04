@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="expo.modules.image-56.0.11-sources">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/node_modules/expo-image/local-maven-repo/expo/modules/image/expo.modules.image/56.0.11/expo.modules.image-56.0.11-sources.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

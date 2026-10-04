@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator, Modal } from 'react-native';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwakeAsync } from 'expo-keep-awake';
@@ -9,6 +9,8 @@ import AlarmOverlay from '../components/AlarmOverlay';
 // Context & Hooks
 import { useApp } from '../context/AppContext';
 import { useGpsTracking } from '../hooks/useGpsTracking';
+import { useEtaRefresh } from '../hooks/useEtaRefresh';
+import { downloadRouteTiles } from '../utils/offlineRouting';
 import { useMotionTracker } from '../hooks/useMotionTracker';
 import { useShakeDetection } from '../hooks/useShakeDetection';
 import { useSosTracking } from '../hooks/useSosTracking';
@@ -23,13 +25,18 @@ import { getJSON } from '../utils/storage';
 import YatraMap from '../components/MapView';
 import SearchBar from '../components/SearchBar';
 import SosCountdown from '../components/SosCountdown';
-import SosModal from '../components/SosModal';
+import PairingScreen from './PairingScreen';
 
 export default function HomeScreen() {
-  useGpsTracking(); // Starts GPS polling
+  // GPS Location Updates
+  useGpsTracking((location) => {
+    setCurrentLat(location.latitude);
+    setCurrentLng(location.longitude);
+  });
 
   const { 
-    currentLat, currentLng, 
+    currentLat, setCurrentLat,
+    currentLng, setCurrentLng,
     destLat, setDestLat, 
     destLng, setDestLng, 
     destName, setDestName, 
@@ -53,11 +60,10 @@ export default function HomeScreen() {
   const [routeTime, setRouteTime] = useState(null);
 
   // Modals & Overlays
-  const [showSosModal, setShowSosModal] = useState(false);
   const [showCountdown, setShowCountdown] = useState(false);
-  const [hasSosContacts, setHasSosContacts] = useState(false);
   const [isRouting, setIsRouting] = useState(false);
   const [showAlarmOverlay, setShowAlarmOverlay] = useState(false);
+  const [showPairing, setShowPairing] = useState(false);
 
   // SOS Logic
   const { startSOS, stopSOS, isSosActive, updateCount } = useSosTracking();
@@ -70,42 +76,39 @@ export default function HomeScreen() {
   useEffect(() => {
     if (alarmSet && !alarmTriggered && currentDurationMin !== null) {
       if (currentDurationMin <= alarmMinutes) {
-        setAlarmTriggered(true);   // Mark it triggered so it doesn't fire again
-        setShowAlarmOverlay(true); // Show the flashing red screen
+        queueMicrotask(() => {
+          setAlarmTriggered(true);   // Mark it triggered so it doesn't fire again
+          setShowAlarmOverlay(true); // Show the flashing red screen
+        });
       }
     }
-  }, [currentDurationMin, alarmSet, alarmTriggered, alarmMinutes]);
+  }, [currentDurationMin, alarmSet, alarmTriggered, alarmMinutes, setAlarmTriggered]);
 
   // ── 1. Safe Wake Lock (Prevents Crash) ────────────────────────
   useEffect(() => {
     async function keepAwake() {
-      try { await activateKeepAwakeAsync(); } catch (e) {}
+      try { await activateKeepAwakeAsync(); } catch (_e) {}
     }
     keepAwake();
     return () => {
       async function releaseAwake() {
-        try { await deactivateKeepAwakeAsync(); } catch (e) {}
+        try { await deactivateKeepAwakeAsync(); } catch (_e) {}
       }
       releaseAwake();
     };
   }, []);
 
-  // ── 2. Check Contacts on Load ─────────────────────────────────
-  useEffect(() => {
-    checkContacts();
-  }, []);
-
-  const checkContacts = async () => {
-    const contacts = await getJSON('sosContacts', []);
-    setHasSosContacts(contacts.length > 0);
-  };
-
   // ── 3. Shake Detection ────────────────────────────────────────
   useShakeDetection(() => {
-    if (hasSosContacts && !isSosActive) setShowCountdown(true);
+    if (!isSosActive) setShowCountdown(true);
   });
 
-  // ── 4. Live ETA Refresh & Offline Countdown (FIXED: No race condition) ──────────────
+  // ── 4. Live ETA Refresh & Offline Countdown (FIXED: Route updates + No timer reset) ──────────────
+  const latestLoc = useRef({ lat: currentLat, lng: currentLng });
+  useEffect(() => {
+    latestLoc.current = { lat: currentLat, lng: currentLng };
+  }, [currentLat, currentLng]);
+
   useEffect(() => {
     let updateInterval;
     let lastOfflineTime = Date.now();
@@ -119,16 +122,24 @@ export default function HomeScreen() {
       } catch (e) { return false; }
     };
 
-    if (destLat && destLng && currentLat && currentLng) {
-      // Consolidated Update Loop (Every 60s)
+    if (destLat && destLng) {
+      // Consolidated Update Loop (Every 30s for better live updates)
       updateInterval = setInterval(async () => {
         const offline = await checkNetwork();
+        const lat = latestLoc.current.lat;
+        const lng = latestLoc.current.lng;
         
+        if (!lat || !lng) return;
+
         if (!offline) {
           // Online: Fetch fresh data from API
           try {
-            const data = await getDirections(currentLat, currentLng, destLat, destLng);
+            const data = await getDirections(lat, lng, destLat, destLng);
             if (data.geometry) {
+              if (data.geometry.coordinates) {
+                const formattedCoords = data.geometry.coordinates.map(([clng, clat]) => ({ latitude: clat, longitude: clng }));
+                setRouteCoords(formattedCoords);
+              }
               setRouteDistance(data.distance_km);
               setRouteTime(data.time_str);
               setCurrentDurationMin(data.duration_min);
@@ -148,19 +159,19 @@ export default function HomeScreen() {
             setRouteTime((prev) => {
               if (!prev) return prev;
               const num = parseInt(prev.split(' ')[0]);
-              if (!isNaN(num) && num > 1) return `${num - 1} min (est.)`;
+              if (!isNaN(num) && num > 1) return `${num - 1} min`;
               return prev;
             });
             lastOfflineTime = Date.now();
           }
         }
-      }, 60000); // 60-second interval
+      }, 30000); // 30-second interval
     }
     
     return () => {
       if (updateInterval) clearInterval(updateInterval);
     };
-  }, [destLat, destLng, currentLat, currentLng]);
+  }, [destLat, destLng, setCurrentDurationMin, setRouteCoords]);
 
   // ── 5. Search Destination Handler ─────────────────────────────
   const handleSelectDestination = async (location) => {
@@ -192,25 +203,55 @@ export default function HomeScreen() {
   const clearRoute = () => {
     setDestLat(null); setDestLng(null); setDestName(null); setRouteCoords([]);
     setRouteDistance(null); setRouteTime(null); setCurrentDurationMin(null);
+    setAlarmSet(false);
+    setAlarmTriggered(false);
+    setShowAlarmOverlay(false);
   };
 
   const handleSosPress = () => {
-    if (!hasSosContacts) setShowSosModal(true);
-    else startSOS();
+    startSOS();
+  };
+
+  // ── Helper to render time in Indian Tri-colour ────────────────
+  const renderTricolorTime = (timeStr) => {
+    if (!timeStr) return null;
+    const cleanTime = timeStr.replace(/\s*\([^)]*\)/g, '').trim();
+    const parts = cleanTime.split(' ').filter(Boolean);
+
+    if (parts.length >= 3) {
+      return (
+        <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+          <Text style={[styles.routeTimeText, { color: '#FF671F' }]}>{parts[0]} </Text>
+          <Text style={[styles.routeTimeText, { color: '#000080' }]}>{parts[1]} </Text>
+          <Text style={[styles.routeTimeText, { color: '#16A34A' }]}>{parts.slice(2).join(' ')}</Text>
+        </View>
+      );
+    } else if (parts.length === 2) {
+      return (
+        <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+          <Text style={[styles.routeTimeText, { color: '#FF671F' }]}>{parts[0]} </Text>
+          <Text style={[styles.routeTimeText, { color: '#16A34A' }]}>{parts[1]}</Text>
+        </View>
+      );
+    } else {
+      return (
+        <Text style={[styles.routeTimeText, { color: '#FF671F' }]}>{cleanTime}</Text>
+      );
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      
-      {/* Search Bar - Floats on top */}
-      <SearchBar onSelectDestination={handleSelectDestination} />
+        <>
+          {/* Search Bar - Floats on top */}
+          <SearchBar onSelectDestination={handleSelectDestination} />
 
-      {/* Main Map */}
-      <YatraMap 
-        currentLat={currentLat} currentLng={currentLng} 
-        destLat={destLat} destLng={destLng} 
-        routeCoords={routeCoords} 
-      />
+          {/* Main Map */}
+          <YatraMap 
+            currentLat={currentLat} currentLng={currentLng} 
+            destLat={destLat} destLng={destLng} 
+            routeCoords={routeCoords} 
+          />
 
       {/* Top Status Bar (Speed/Location info) */}
       <View style={[styles.statusBar, { flexDirection: 'row', justifyContent: 'space-between' }]}>
@@ -258,16 +299,23 @@ export default function HomeScreen() {
           {destName && (
             <View style={styles.routeBox}>
               {routeTime && (
-                <View style={styles.routeInfoRow}>
-                  <Text style={styles.routeTimeText}>{routeTime}</Text>
-                  <Text style={styles.routeDistText}>({routeDistance} km)</Text>
+                <View style={styles.routeInfoContainer}>
+                  {renderTricolorTime(routeTime)}
+                  <View style={styles.tricolorStripe}>
+                    <View style={[styles.stripeSegment, { backgroundColor: '#FF671F' }]} />
+                    <View style={[styles.stripeSegment, { backgroundColor: '#000080' }]} />
+                    <View style={[styles.stripeSegment, { backgroundColor: '#16A34A' }]} />
+                  </View>
+                  {routeDistance && (
+                    <Text style={styles.routeDistText}>📍 {routeDistance} km</Text>
+                  )}
                 </View>
               )}
               
               <Text style={styles.routeTitle}>Heading to:</Text>
               <Text style={styles.routeDest} numberOfLines={1}>{destName}</Text>
-              <TouchableOpacity onPress={clearRoute}>
-                <Text style={styles.clearRouteText}>Clear Route ✕</Text>
+              <TouchableOpacity style={styles.clearRouteButton} onPress={clearRoute} activeOpacity={0.7}>
+                <Text style={styles.clearRouteButtonText}>✕ Clear Route</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -275,15 +323,21 @@ export default function HomeScreen() {
           {/* Alarm Panel */}
           <AlarmPanel avgSpeed={avgSpeed} />
 
-          <TouchableOpacity 
-            style={[styles.sosButton, isSosActive && { opacity: 0.5 }]} 
-            onPress={handleSosPress}
-            disabled={isSosActive}
-          >
-            <Text style={styles.sosButtonText}>
-              {hasSosContacts ? "🆘 SLIDE OR TAP TO SOS" : "⚙️ SETUP EMERGENCY SOS"}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={styles.pairButton} onPress={() => setShowPairing(true)}>
+              <Text style={styles.pairButtonText}>🔗 Pair Guardian</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.sosButton, isSosActive && { opacity: 0.5 }]} 
+              onPress={handleSosPress}
+              disabled={isSosActive}
+            >
+              <Text style={styles.sosButtonText}>
+                🆘 SOS
+              </Text>
+            </TouchableOpacity>
+          </View>
         </BottomSheetView>
       </BottomSheet>
 
@@ -295,12 +349,6 @@ export default function HomeScreen() {
         />
       )}
 
-      <SosModal 
-        visible={showSosModal} 
-        onClose={() => setShowSosModal(false)}
-        onComplete={() => { checkContacts(); setShowSosModal(false); }}
-      />
-
       {/* Alarm Trigger Overlay */}
       {showAlarmOverlay && (
         <AlarmOverlay 
@@ -308,17 +356,26 @@ export default function HomeScreen() {
           alarmMinutes={alarmMinutes} 
           onDismiss={() => {
             setShowAlarmOverlay(false);
-            setAlarmSet(false); // Reset the alarm after dismissing
+            setAlarmSet(false);       // Reset the alarm after dismissing
+            setAlarmTriggered(false); // Reset triggered status
           }} 
         />
       )}
 
+      <Modal visible={showPairing} animationType="slide">
+        <PairingScreen mode="Traveler" onClose={() => setShowPairing(false)} />
+      </Modal>
+        </>
+      ){'}'}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
+  roleSwitcher: { flexDirection: 'row', justifyContent: 'space-around', padding: 10, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#E2E8F0', zIndex: 10 },
+  roleBtn: { backgroundColor: '#2563EB', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  roleBtnText: { color: '#fff', fontWeight: 'bold' },
   statusBar: {
     position: 'absolute', top: 110, left: 16, right: 16,
     backgroundColor: 'rgba(255,255,255,0.9)', padding: 8, borderRadius: 8,
@@ -343,15 +400,35 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   routeBox: { backgroundColor: '#F8FAFC', padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: '#E2E8F0' },
-  routeInfoRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 8 },
-  routeTimeText: { fontSize: 26, fontWeight: 'bold', color: '#F59E0B' },
-  routeDistText: { fontSize: 15, fontWeight: '600', color: '#64748B' },
+  routeInfoContainer: { marginBottom: 12 },
+  tricolorStripe: { flexDirection: 'row', height: 3, width: 80, borderRadius: 2, overflow: 'hidden', marginTop: 4, marginBottom: 6 },
+  stripeSegment: { flex: 1 },
+  routeTimeText: { fontSize: 26, fontWeight: 'bold' },
+  routeDistText: { fontSize: 15, fontWeight: '600', color: '#64748B', marginTop: 2 },
   routeTitle: { fontSize: 12, color: '#64748B', fontWeight: 'bold' },
   routeDest: { fontSize: 16, color: '#0F172A', fontWeight: '600', marginVertical: 4 },
-  clearRouteText: { color: '#EF4444', fontSize: 13, fontWeight: 'bold', marginTop: 8 },
+  clearRouteButton: {
+    marginTop: 10,
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clearRouteButtonText: { color: '#DC2626', fontSize: 14, fontWeight: '700' },
+  actionRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  pairButton: {
+    backgroundColor: '#F1F5F9', paddingVertical: 18, borderRadius: 12, alignItems: 'center',
+    flex: 1, borderWidth: 1, borderColor: '#E2E8F0'
+  },
+  pairButtonText: { color: '#475569', fontSize: 16, fontWeight: '700' },
   sosButton: {
     backgroundColor: '#EF4444', paddingVertical: 18, borderRadius: 12, alignItems: 'center',
-    shadowColor: '#EF4444', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, elevation: 5
+    shadowColor: '#EF4444', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, elevation: 5,
+    flex: 2
   },
   sosButtonText: { color: '#fff', fontSize: 16, fontWeight: '800', letterSpacing: 0.5 },
   sosBanner: {

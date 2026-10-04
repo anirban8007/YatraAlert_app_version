@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="app.config">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/android/app/build/intermediates/compressed_assets/debug/compressDebugAssets/out/assets/app.config.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

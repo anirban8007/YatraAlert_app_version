@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert, Image } from 'react-native';
 import { signInWithEmail, signUpWithEmail, signInWithGoogle, validateEmail, validatePassword } from '../utils/auth';
 
 export default function LoginScreen({ onLoginSuccess, onSkip }) {
@@ -102,8 +102,12 @@ export default function LoginScreen({ onLoginSuccess, onSkip }) {
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
-          <Text style={styles.logo}>🚂 YatraAlert</Text>
-          <Text style={styles.subtitle}>Secure your journeys</Text>
+          <Image
+            source={require('../../assets/images/icon.png')}
+            style={{ width: 72, height: 72, alignSelf: 'center', marginBottom: 12, borderRadius: 16 }}
+            resizeMode="cover"
+          />
+          <Text style={styles.logo}>YatraAlert</Text>
 
           {/* Error Message */}
           {error ? (

@@ -45,12 +45,20 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  const [hasSkipped, setHasSkipped] = useState(false);
+
+  const skipLogin = () => {
+    setHasSkipped(true);
+  };
+
   const value = {
     user,
     session,
     loading,
     error,
     isAuthenticated: !!user,
+    hasSkipped,
+    skipLogin,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

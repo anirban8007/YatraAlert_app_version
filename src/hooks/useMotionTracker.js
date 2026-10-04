@@ -11,6 +11,7 @@ export function useMotionTracker() {
   
   const [avgSpeed, setAvgSpeed] = useState(0);
   const [isMoving, setIsMoving] = useState(false);
+  const [samplesCount, setSamplesCount] = useState(0);
 
   const MAX_WINDOW = 5;
   const MOVING_THRESHOLD = 2; // km/h
@@ -48,6 +49,7 @@ export function useMotionTracker() {
     const total = speedWindow.current.reduce((sum, val) => sum + val, 0);
     const avg = total / speedWindow.current.length;
     setAvgSpeed(avg);
+    setSamplesCount(speedWindow.current.length);
 
     const moving = avg > MOVING_THRESHOLD;
     setIsMoving(moving);
@@ -59,7 +61,7 @@ export function useMotionTracker() {
     // Save current for next calculation
     lastPosition.current = { lat: currentLat, lng: currentLng };
     lastPositionTime.current = now;
-  }, [currentLat, currentLng]);
+  }, [currentLat, currentLng, destLat, destLng, journeyStarted, setJourneyStarted]);
 
   function predictETA(remainingDistanceKm) {
     if (avgSpeed < MOVING_THRESHOLD || remainingDistanceKm <= 0) return null;
@@ -72,6 +74,7 @@ export function useMotionTracker() {
     lastPositionTime.current = null;
     setAvgSpeed(0);
     setIsMoving(false);
+    setSamplesCount(0);
   }
 
   return { 
@@ -79,7 +82,7 @@ export function useMotionTracker() {
     isMoving, 
     predictETA, 
     reset, 
-    samplesCount: speedWindow.current.length,
+    samplesCount,
     maxSamples: MAX_WINDOW
   };
 }

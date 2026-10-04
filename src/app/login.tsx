@@ -24,13 +24,13 @@ export default function LoginScreen() {
       alert(error.message);
       setLoading(false);
     } else {
-      router.replace('/home'); 
+      router.replace('/(tabs)/client'); 
     }
   }
 
   function handleSkip() {
     skipLogin();
-    router.replace('/home');
+    router.replace('/(tabs)/client');
   }
 
   async function onGoogleButtonPress() {
@@ -52,7 +52,7 @@ export default function LoginScreen() {
         if (error) {
           alert(error.message);
         } else {
-          router.replace('/home');
+          router.replace('/(tabs)/client');
         }
       } else {
         alert('Google Sign-In failed to get an ID token.');
@@ -74,10 +74,9 @@ export default function LoginScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
         <View style={styles.glassCard}>
           <Text style={styles.title}>YatraAlert</Text>
-          <Text style={styles.subtitle}>Secure your journey.</Text>
 
           {session ? (
-            <TouchableOpacity style={styles.button} onPress={() => router.replace('/home')}>
+            <TouchableOpacity style={styles.button} onPress={() => router.replace('/(tabs)/client')}>
               <Text style={styles.buttonText}>Get Started</Text>
             </TouchableOpacity>
           ) : (

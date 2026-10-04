@@ -5,7 +5,9 @@ import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
 
 export default function AlarmOverlay({ destName, alarmMinutes, onDismiss }) {
   // Load a free public alarm beep provided by Google
-  const player = useAudioPlayer('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+  const player = useAudioPlayer('https://actions.google.com/sounds/v1/alarms/beep_short.ogg', (p) => {
+    p.loop = true;
+  });
 
   useEffect(() => {
     // 1. Intense Vibration Pattern [wait, vibrate, wait, vibrate...]
@@ -29,7 +31,6 @@ export default function AlarmOverlay({ destName, alarmMinutes, onDismiss }) {
         });
 
         if (player) {
-          player.loop = true;
           player.play();
         }
       } catch (error) {
@@ -39,13 +40,15 @@ export default function AlarmOverlay({ destName, alarmMinutes, onDismiss }) {
 
     playLoudBeep();
 
-    // 4. Cleanup function: stop everything when the user clicks "Dismiss"
+    // 4. Cleanup function: stop everything safely when the user clicks "Dismiss"
     return () => {
-      Vibration.cancel();
-      Speech.stop();
-      if (player) {
-        player.pause();
-      }
+      try { Vibration.cancel(); } catch (_e) {}
+      try { Speech.stop(); } catch (_e) {}
+      try {
+        if (player) {
+          player.pause();
+        }
+      } catch (_e) {}
     };
   }, [player]); // Dependency on player
 

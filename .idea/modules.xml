@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/YatraAlert_app_version-main.iml" filepath="$PROJECT_DIR$/.idea/YatraAlert_app_version-main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/android/app/src/app.iml" filepath="$PROJECT_DIR$/android/app/src/app.iml" />
+      <module fileurl="file://$PROJECT_DIR$/android/app/build/generated/autolinking/autolinking.iml" filepath="$PROJECT_DIR$/android/app/build/generated/autolinking/autolinking.iml" />
+      <module fileurl="file://$PROJECT_DIR$/android/app/build/generated/source/generated.iml" filepath="$PROJECT_DIR$/android/app/build/generated/source/generated.iml" />
+    </modules>
+  </component>
+</project>
