@@ -1,3 +1,6 @@
+import '../utils/cryptoPolyfill';
+import { ClerkProvider } from '@clerk/expo';
+import { tokenCache } from '@clerk/expo/token-cache';
 import React, { useEffect, useState } from 'react';
 import { AppProvider, useApp } from '../context/AppContext';
 import { RoleProvider } from '../context/RoleContext';
@@ -7,6 +10,11 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { configureGoogleSignin } from '../utils/googleAuth';
 import * as TaskManager from 'expo-task-manager';
 import { getJSON, setJSON } from '../utils/storage';
+import Mapbox from '@rnmapbox/maps';
+
+const MAPBOX_ACCESS_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN || '';
+
+Mapbox.setAccessToken(MAPBOX_ACCESS_TOKEN);
 
 const BACKGROUND_LOCATION_TASK = 'background-location-task';
 
@@ -22,6 +30,15 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
 });
 
 import GenderPicker from '../components/GenderPicker';
+
+const publishableKey = 
+  process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || 
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || 
+  "pk_test_Zml0dGluZy1oYWRkb2NrLTU3ODkuY2xlcmsuYWNjb3VudHMuZGV2JA";
+
+if (!publishableKey) {
+  throw new Error("Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY. Add your key to .env.local.");
+}
 
 configureGoogleSignin('17638648884-acko4iollk282l70tkluspv7jo7doeit.apps.googleusercontent.com');
 
@@ -119,10 +136,12 @@ function InitialLayout() {
 
 export default function RootLayout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <AuthProvider>
-        <InitialLayout />
-      </AuthProvider>
-    </GestureHandlerRootView>
+    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <AuthProvider>
+          <InitialLayout />
+        </AuthProvider>
+      </GestureHandlerRootView>
+    </ClerkProvider>
   );
 }

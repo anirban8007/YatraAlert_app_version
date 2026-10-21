@@ -1,23 +1,27 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
+import { useAuth as useClerkAuth, useUser as useClerkUser } from '@clerk/expo';
 import { onAuthStateChange, getCurrentUser, getCurrentSession } from '../utils/auth';
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [session, setSession] = useState(null);
+  const clerkAuth = useClerkAuth();
+  const { user: clerkUser } = useClerkUser();
+
+  const [supabaseUser, setSupabaseUser] = useState(null);
+  const [supabaseSession, setSupabaseSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [hasSkipped, setHasSkipped] = useState(false);
 
   useEffect(() => {
-    // Check current session on mount
+    // Check current Supabase session on mount
     async function checkSession() {
       try {
         const currentUser = await getCurrentUser();
         const currentSession = await getCurrentSession();
-        
-        setUser(currentUser);
-        setSession(currentSession);
+        setSupabaseUser(currentUser);
+        setSupabaseSession(currentSession);
       } catch (e) {
         console.error('Session check error:', e);
         setError(e.message);
@@ -30,13 +34,11 @@ export function AuthProvider({ children }) {
 
     // Listen for auth state changes
     const subscription = onAuthStateChange((event, newSession) => {
-      console.log('Auth event:', event);
-      
-      setSession(newSession);
+      setSupabaseSession(newSession);
       if (newSession?.user) {
-        setUser(newSession.user);
+        setSupabaseUser(newSession.user);
       } else {
-        setUser(null);
+        setSupabaseUser(null);
       }
     });
 
@@ -45,20 +47,41 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  const [hasSkipped, setHasSkipped] = useState(false);
-
   const skipLogin = () => {
     setHasSkipped(true);
   };
 
+  // Active user: Clerk user takes priority, fallback to Supabase user
+  const activeUser = clerkUser
+    ? {
+        id: clerkUser.id,
+        email: clerkUser.primaryEmailAddress?.emailAddress,
+        name: clerkUser.fullName || clerkUser.firstName || 'Traveler',
+        user_metadata: {
+          full_name: clerkUser.fullName || clerkUser.firstName,
+          name: clerkUser.fullName || clerkUser.firstName,
+          email: clerkUser.primaryEmailAddress?.emailAddress,
+        },
+      }
+    : supabaseUser;
+
+  const activeSession = clerkAuth.isSignedIn
+    ? { user: activeUser, token: clerkAuth.sessionId }
+    : supabaseSession;
+
+  const isAuth = clerkAuth.isSignedIn || !!supabaseUser;
+  const isLoaded = clerkAuth.isLoaded && !loading;
+
   const value = {
-    user,
-    session,
-    loading,
+    user: activeUser,
+    session: activeSession,
+    loading: !isLoaded,
     error,
-    isAuthenticated: !!user,
+    isAuthenticated: isAuth,
     hasSkipped,
     skipLogin,
+    clerkAuth,
+    clerkUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

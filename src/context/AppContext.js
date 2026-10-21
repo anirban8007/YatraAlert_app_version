@@ -1,4 +1,6 @@
-import React, { createContext, useState, useContext } from 'react';
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DEFAULT_RINGTONE } from '../constants/ringtones.js';
 
 const AppContext = createContext();
 
@@ -17,6 +19,7 @@ export function AppProvider({ children }) {
   const [alarmTriggered, setAlarmTriggered] = useState(false);
   const [currentDurationMin, setCurrentDurationMin] = useState(null);
   const [journeyStarted, setJourneyStarted] = useState(false);
+  const [selectedRingtone, setSelectedRingtone] = useState(DEFAULT_RINGTONE);
 
   // App Settings
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(false);
@@ -24,8 +27,32 @@ export function AppProvider({ children }) {
   const [offlineMode, setOfflineMode] = useState(false);
 
   // User Profile — name & gender for personalized SOS messages
-  // gender: 'male' | 'female' | 'other' | null
   const [userProfile, setUserProfile] = useState({ name: null, gender: null });
+
+  // Load persisted theme and ringtone preferences on startup
+  useEffect(() => {
+    const loadPreferences = async () => {
+      try {
+        const storedTheme = await AsyncStorage.getItem('pref_theme_mode');
+        if (storedTheme !== null) {
+          setIsDarkMode(storedTheme === 'dark');
+        }
+        const storedRingtone = await AsyncStorage.getItem('pref_alarm_ringtone');
+        if (storedRingtone) {
+          const parsed = JSON.parse(storedRingtone);
+          const found = ALARM_RINGTONES.find((r) => r.id === parsed?.id);
+          if (found) {
+            setSelectedRingtone(found);
+          } else {
+            setSelectedRingtone(parsed);
+          }
+        }
+      } catch (_e) {
+        // silent
+      }
+    };
+    loadPreferences();
+  }, []);
 
   const value = {
     currentLat, setCurrentLat,
@@ -39,6 +66,7 @@ export function AppProvider({ children }) {
     alarmTriggered, setAlarmTriggered,
     currentDurationMin, setCurrentDurationMin,
     journeyStarted, setJourneyStarted,
+    selectedRingtone, setSelectedRingtone,
     isVoiceEnabled, setIsVoiceEnabled,
     isDarkMode, setIsDarkMode,
     offlineMode, setOfflineMode,

@@ -109,8 +109,10 @@ export default function SosModal({ visible, onClose, onComplete }) {
               <TextInput style={[styles.input, { height: 80 }]} multiline
                 value={message} onChangeText={setMessage} />
               <View style={styles.shakeGuide}>
-                <ShakeAnimation />
-                <Text>💡 Tip: Shake LEFT→RIGHT→LEFT→RIGHT to trigger SOS offline</Text>
+                <ShakeAnimation compact />
+                <Text style={{ fontSize: 13, color: '#92400E', fontWeight: '600', textAlign: 'center', marginTop: 4 }}>
+                  💡 Tip: Shake LEFT → RIGHT → LEFT (within 2s) to trigger SOS
+                </Text>
               </View>
               <TouchableOpacity style={[styles.btn, styles.btnSuccess]} onPress={handleSave}>
                 <Text style={styles.btnText}>Save Contacts ✓</Text>

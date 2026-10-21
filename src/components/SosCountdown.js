@@ -1,19 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Vibration } from 'react-native';
 import * as Speech from 'expo-speech';
 
+/**
+ * Full-screen 5-second countdown overlay triggered by deliberate shake.
+ * Speaks voice warning and allows immediate prominent cancellation.
+ */
 export default function SosCountdown({ onComplete, onCancel }) {
   const [seconds, setSeconds] = useState(5);
+  const completedRef = useRef(false);
 
   useEffect(() => {
-    if (seconds === 0) {
+    if (seconds === 0 && !completedRef.current) {
+      completedRef.current = true;
+      Speech.stop();
       onComplete();
     }
   }, [seconds, onComplete]);
 
   useEffect(() => {
-    // Announce the SOS natively
-    Speech.speak('Emergency SOS will be sent in 5 seconds', { rate: 0.9 });
+    // Announce the SOS natively with TTS
+    Speech.speak('Emergency SOS will be sent in 5 seconds. Tap cancel to abort.', { rate: 0.95 });
 
     const interval = setInterval(() => {
       setSeconds((s) => {
@@ -25,27 +32,41 @@ export default function SosCountdown({ onComplete, onCancel }) {
       });
     }, 1000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      Speech.stop(); // Always halt speech on cleanup/unmount
+    };
   }, []);
 
+  const handleCancel = () => {
+    try {
+      Vibration.vibrate([0, 80, 50, 80]);
+    } catch (_e) {}
+    Speech.stop();
+    onCancel();
+  };
+
   return (
-    <View style={styles.overlay}>
-      <Text style={styles.title}>🚨 EMERGENCY SOS</Text>
-      <Text style={styles.countdown}>{seconds}</Text>
-      <Text style={styles.subtitle}>
-        Shake detected — sending location to all contacts
-      </Text>
-      
-      <TouchableOpacity
-        style={styles.cancelBtn}
-        onPress={() => {
-          Vibration.vibrate(100);
-          Speech.stop();
-          onCancel();
-        }}
-      >
-        <Text style={styles.cancelText}>CANCEL SOS</Text>
-      </TouchableOpacity>
+    <View style={styles.overlay} accessibilityRole="alert" accessibilityLiveRegion="assertive">
+      <View style={styles.card}>
+        <Text style={styles.badge}>⚠️ EMERGENCY TRIGGERED</Text>
+        <Text style={styles.title}>Deliberate Shake Detected</Text>
+        <Text style={styles.countdown}>{seconds}</Text>
+        <Text style={styles.subtitle}>
+          Left → Right → Left pattern confirmed.{'\n'}
+          Sending live GPS location to paired guardians and contacts in {seconds}s.
+        </Text>
+
+        <TouchableOpacity
+          style={styles.cancelBtn}
+          onPress={handleCancel}
+          activeOpacity={0.8}
+          accessibilityLabel="Cancel SOS emergency alert"
+          accessibilityRole="button"
+        >
+          <Text style={styles.cancelText}>✕ CANCEL SOS</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -53,15 +74,37 @@ export default function SosCountdown({ onComplete, onCancel }) {
 const styles = StyleSheet.create({
   overlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 99999,
-    justifyContent: 'center', alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.92)', zIndex: 99999,
+    justifyContent: 'center', alignItems: 'center', padding: 24,
   },
-  title: { color: '#FFFFFF', fontSize: 18, marginBottom: 12, letterSpacing: 1, fontWeight: 'bold' },
-  countdown: { color: '#FFFFFF', fontSize: 100, fontWeight: '900' },
-  subtitle: { color: '#CCCCCC', fontSize: 15, marginVertical: 30, textAlign: 'center', paddingHorizontal: 40 },
+  card: {
+    width: '100%', maxWidth: 380, backgroundColor: '#1E293B',
+    borderRadius: 24, padding: 28, alignItems: 'center',
+    borderWidth: 2, borderColor: '#EF4444',
+    shadowColor: '#EF4444', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5, shadowRadius: 20, elevation: 15,
+  },
+  badge: {
+    color: '#EF4444', fontSize: 13, fontWeight: '800', letterSpacing: 1.5,
+    marginBottom: 8, textTransform: 'uppercase'
+  },
+  title: {
+    color: '#F8FAFC', fontSize: 20, fontWeight: '700', textAlign: 'center', marginBottom: 16
+  },
+  countdown: {
+    color: '#EF4444', fontSize: 96, fontWeight: '900', marginVertical: 8,
+    textShadowColor: 'rgba(239, 68, 68, 0.6)', textShadowOffset: { width: 0, height: 4 },
+    textShadowRadius: 16,
+  },
+  subtitle: {
+    color: '#CBD5E1', fontSize: 15, textAlign: 'center', marginVertical: 18,
+    lineHeight: 22, paddingHorizontal: 12,
+  },
   cancelBtn: {
-    backgroundColor: '#E74C3C', paddingHorizontal: 40, paddingVertical: 18,
-    borderRadius: 14,
+    backgroundColor: '#EF4444', width: '100%', paddingVertical: 18,
+    borderRadius: 14, alignItems: 'center', marginTop: 8,
   },
-  cancelText: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
+  cancelText: {
+    color: '#FFFFFF', fontSize: 18, fontWeight: '800', letterSpacing: 1
+  },
 });

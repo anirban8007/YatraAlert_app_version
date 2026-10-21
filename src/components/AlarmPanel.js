@@ -14,7 +14,7 @@ export default function AlarmPanel({ avgSpeed = 0 }) {
 
   // Calculate the max allowable alarm time based on ETA (Total time - 5)
   useEffect(() => {
-    if (currentDurationMin) {
+    if (currentDurationMin && currentDurationMin > 5) {
       let calcMax = Math.max(5, Math.min(120, currentDurationMin - 5));
       calcMax = Math.max(5, Math.floor(calcMax / 5) * 5);
       const targetMax = calcMax;
@@ -24,23 +24,28 @@ export default function AlarmPanel({ avgSpeed = 0 }) {
           setAlarmMinutes(targetMax);
         }
       });
+    } else {
+      setMaxAlarm(60);
     }
   }, [currentDurationMin, alarmSet, alarmMinutes, setAlarmMinutes]);
 
-  // Hide entirely if the trip is too short to need an alarm (< 5 mins)
-  if (!currentDurationMin || currentDurationMin < 5) return null;
+  // Hide only if ETA is computed and trip is under 2 minutes (already arrived)
+  if (currentDurationMin !== null && currentDurationMin !== undefined && currentDurationMin < 2) {
+    return null;
+  }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>🔔 Destination Alarm</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>🔔 Destination Alarm</Text>
+        {!isMoving && (
+          <View style={styles.stationaryBadge}>
+            <Text style={styles.stationaryBadgeText}>Stationary • Armed</Text>
+          </View>
+        )}
+      </View>
 
-      {!isMoving ? (
-        <View style={styles.waitingBox}>
-          <Text style={styles.waitingIcon}>🚗💨</Text>
-          <Text style={styles.waitingText}>Start moving to enable Destination Alarm</Text>
-          <Text style={styles.speedText}>Current speed: {(avgSpeed || 0).toFixed(1)} km/h (Requires ≥ 2.0 km/h)</Text>
-        </View>
-      ) : !alarmSet ? (
+      {!alarmSet ? (
         <>
           <Text style={styles.display}>{alarmMinutes} minutes before arrival</Text>
           <Slider
@@ -51,14 +56,19 @@ export default function AlarmPanel({ avgSpeed = 0 }) {
             value={alarmMinutes}
             onValueChange={setAlarmMinutes}
             minimumTrackTintColor="#2563EB"
-            maximumTrackTintColor="#E2E8F0"
+            maximumTrackTintColor="#CBD5E1"
           />
           <SwipeButton text="Slide to Set Alarm" onSwipeSuccess={() => setAlarmSet(true)} />
         </>
       ) : (
         <View style={styles.activeBox}>
-          <Text style={styles.activeText}>✅ Alarm set: {alarmMinutes} mins before arrival</Text>
-          <TouchableOpacity onPress={() => setAlarmSet(false)}>
+          <Text style={styles.activeText}>✅ Alarm Active: Alerts {alarmMinutes}m before arrival</Text>
+          <Text style={styles.activeSubtext}>
+            {isMoving
+              ? `Moving at ${(avgSpeed || 0).toFixed(0)} km/h • Monitoring GPS & ETA`
+              : 'Waiting for movement • Will ring automatically as you approach'}
+          </Text>
+          <TouchableOpacity onPress={() => setAlarmSet(false)} style={styles.cancelBtn}>
             <Text style={styles.cancelText}>Cancel Alarm</Text>
           </TouchableOpacity>
         </View>
@@ -69,13 +79,14 @@ export default function AlarmPanel({ avgSpeed = 0 }) {
 
 const styles = StyleSheet.create({
   container: { backgroundColor: '#F8FAFC', padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: '#E2E8F0' },
-  title: { fontSize: 16, fontWeight: 'bold', color: '#1E293B', marginBottom: 12 },
-  display: { fontSize: 20, fontWeight: 'bold', color: '#2563EB', textAlign: 'center' },
-  waitingBox: { backgroundColor: '#F1F5F9', padding: 14, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#E2E8F0' },
-  waitingIcon: { fontSize: 24, marginBottom: 4 },
-  waitingText: { color: '#334155', fontWeight: '700', fontSize: 14, textAlign: 'center' },
-  speedText: { color: '#64748B', fontSize: 12, marginTop: 4, textAlign: 'center', fontWeight: '500' },
-  activeBox: { backgroundColor: '#D1FAE5', padding: 12, borderRadius: 8, alignItems: 'center' },
-  activeText: { color: '#065F46', fontWeight: 'bold', marginBottom: 8, textAlign: 'center' },
-  cancelText: { color: '#EF4444', fontWeight: 'bold' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  title: { fontSize: 16, fontWeight: 'bold', color: '#1E293B' },
+  stationaryBadge: { backgroundColor: '#EEF2F6', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 6, borderWidth: 1, borderColor: '#CBD5E1' },
+  stationaryBadgeText: { fontSize: 11, fontWeight: '600', color: '#475569' },
+  display: { fontSize: 20, fontWeight: 'bold', color: '#2563EB', textAlign: 'center', marginVertical: 6 },
+  activeBox: { backgroundColor: '#ECFDF5', padding: 14, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#A7F3D0' },
+  activeText: { color: '#065F46', fontWeight: 'bold', fontSize: 14, textAlign: 'center' },
+  activeSubtext: { color: '#047857', fontSize: 12, marginTop: 4, marginBottom: 8, textAlign: 'center' },
+  cancelBtn: { paddingVertical: 6, paddingHorizontal: 12 },
+  cancelText: { color: '#DC2626', fontWeight: 'bold', fontSize: 13 },
 });

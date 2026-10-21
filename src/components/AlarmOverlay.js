@@ -2,26 +2,36 @@ import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Vibration } from 'react-native';
 import * as Speech from 'expo-speech';
 import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { useApp } from '../context/AppContext';
+import { DEFAULT_RINGTONE } from '../constants/ringtones';
 
 export default function AlarmOverlay({ destName, alarmMinutes, onDismiss }) {
-  // Load a free public alarm beep provided by Google
-  const player = useAudioPlayer('https://actions.google.com/sounds/v1/alarms/beep_short.ogg', (p) => {
-    p.loop = true;
-  });
+  const { selectedRingtone, isVoiceEnabled } = useApp();
+  const ringtoneSource =
+    selectedRingtone?.source ||
+    selectedRingtone?.url ||
+    DEFAULT_RINGTONE?.source ||
+    DEFAULT_RINGTONE?.url;
+
+  // Load the user's selected alarm ringtone
+  const player = useAudioPlayer(ringtoneSource);
 
   useEffect(() => {
     // 1. Intense Vibration Pattern [wait, vibrate, wait, vibrate...]
     const VIBRATION_PATTERN = [0, 500, 200, 500]; 
     Vibration.vibrate(VIBRATION_PATTERN, true); // 'true' means it will loop forever until dismissed
 
-    // 2. Voice Announcement
-    Speech.speak(`Attention! You are arriving at ${destName} in ${alarmMinutes} minutes. Please get ready.`, {
-      rate: 0.9,
-      pitch: 1.1,
-    });
+    // 2. Voice Announcement (if enabled)
+    if (isVoiceEnabled !== false) {
+      const destinationText = destName || 'your destination';
+      Speech.speak(`Attention! You are arriving at ${destinationText} in ${alarmMinutes} minutes. Please get ready.`, {
+        rate: 0.9,
+        pitch: 1.1,
+      });
+    }
 
-    // 3. Audio Beep
-    async function playLoudBeep() {
+    // 3. Audio Ringtone Playback
+    async function playLoudAlarm() {
       try {
         // Set audio to play through the loud phone speaker, ignoring silent mode
         await setAudioModeAsync({
@@ -31,6 +41,7 @@ export default function AlarmOverlay({ destName, alarmMinutes, onDismiss }) {
         });
 
         if (player) {
+          player.loop = true;
           player.play();
         }
       } catch (error) {
@@ -38,7 +49,7 @@ export default function AlarmOverlay({ destName, alarmMinutes, onDismiss }) {
       }
     }
 
-    playLoudBeep();
+    playLoudAlarm();
 
     // 4. Cleanup function: stop everything safely when the user clicks "Dismiss"
     return () => {
@@ -50,7 +61,7 @@ export default function AlarmOverlay({ destName, alarmMinutes, onDismiss }) {
         }
       } catch (_e) {}
     };
-  }, [player]); // Dependency on player
+  }, [player, alarmMinutes, destName, isVoiceEnabled]);
 
   return (
     <View style={styles.overlay}>
