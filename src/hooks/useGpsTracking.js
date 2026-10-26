@@ -38,45 +38,51 @@ export const useGpsTracking = (onLocationUpdate) => {
         }
       );
 
-      // 3. Request background permissions
-      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-      if (bgStatus !== 'granted' || isCancelled) return;
+      // 3. Check (do NOT forcibly request) background permissions.
+      // Calling requestBackgroundPermissionsAsync forcibly opens Android App Info / Settings.
+      // We check getBackgroundPermissionsAsync so the user's choice ('While using the app' or 'Only this time') is fully respected.
+      try {
+        const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
+        if (bgStatus !== 'granted' || isCancelled) return;
 
-      // Helper to safely start background service only when app is active
-      const tryStartBackground = async () => {
-        if (AppState.currentState !== 'active' || isCancelled) return;
-        try {
-          const hasSupport = await Location.isBackgroundLocationAvailableAsync();
-          if (!hasSupport) return;
+        // Helper to safely start background service only when app is active
+        const tryStartBackground = async () => {
+          if (AppState.currentState !== 'active' || isCancelled) return;
+          try {
+            const hasSupport = await Location.isBackgroundLocationAvailableAsync();
+            if (!hasSupport) return;
 
-          const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
-          if (!isRegistered) {
-            await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-              accuracy: Location.Accuracy.Balanced,
-              distanceInterval: 10,
-              timeInterval: 10000,
-              foregroundService: {
-                notificationTitle: 'YatraAlert Active',
-                notificationBody: 'Monitoring journey progress and station proximity',
-                notificationColor: '#2563EB',
-              },
-            });
+            const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+            if (!isRegistered) {
+              await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+                accuracy: Location.Accuracy.Balanced,
+                distanceInterval: 10,
+                timeInterval: 10000,
+                foregroundService: {
+                  notificationTitle: 'YatraAlert Active',
+                  notificationBody: 'Monitoring journey progress and station proximity',
+                  notificationColor: '#2563EB',
+                },
+              });
+            }
+          } catch (error) {
+            // Android 12+ prevents starting foreground services from background state;
+            // will retry when AppState becomes active.
           }
-        } catch (error) {
-          // Android 12+ prevents starting foreground services from background state;
-          // will retry when AppState becomes active.
-        }
-      };
+        };
 
-      // Attempt when active
-      await tryStartBackground();
+        // Attempt when active
+        await tryStartBackground();
 
-      // Listen for app coming back to foreground (e.g., after OS permission modal closes)
-      appStateSub = AppState.addEventListener('change', (nextState) => {
-        if (nextState === 'active') {
-          tryStartBackground();
-        }
-      });
+        // Listen for app coming back to foreground
+        appStateSub = AppState.addEventListener('change', (nextState) => {
+          if (nextState === 'active') {
+            tryStartBackground();
+          }
+        });
+      } catch (_bgErr) {
+        // Non-critical background location check
+      }
     };
 
     startTracking();

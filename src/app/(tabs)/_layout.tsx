@@ -1,8 +1,14 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { Text, StyleSheet } from 'react-native';
+import { Text, StyleSheet, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+  // Safe clearance for 3-button Android system bar (typically ~48px) and gesture bar
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 16 : 8);
+  const tabHeight = 58 + bottomInset;
+
   return (
     <Tabs
       screenOptions={{
@@ -10,7 +16,14 @@ export default function TabLayout() {
         tabBarActiveTintColor: '#2563EB',
         tabBarInactiveTintColor: '#64748B',
         tabBarLabelStyle: styles.tabLabel,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            height: tabHeight,
+            paddingBottom: bottomInset,
+          },
+        ],
+        tabBarItemStyle: styles.tabBarItem,
       }}
     >
       {/* 1. Yatra (Navigation, Map, Alarm, Multi-Modal) */}
@@ -65,19 +78,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
-    height: 60,
-    paddingBottom: 8,
     paddingTop: 6,
-    elevation: 8,
+    elevation: 12,
     shadowColor: '#000',
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.08,
     shadowOffset: { width: 0, height: -2 },
-    shadowRadius: 4,
+    shadowRadius: 6,
+  },
+  tabBarItem: {
+    paddingVertical: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   tabLabel: {
     fontSize: 11,
     fontWeight: '700',
-    marginTop: -2,
+    marginTop: 2,
   },
   tabIcon: {
     fontSize: 20,

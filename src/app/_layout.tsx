@@ -7,6 +7,7 @@ import { RoleProvider } from '../context/RoleContext';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { configureGoogleSignin } from '../utils/googleAuth';
 import * as TaskManager from 'expo-task-manager';
 import { getJSON, setJSON } from '../utils/storage';
@@ -136,12 +137,14 @@ function InitialLayout() {
 
 export default function RootLayout() {
   return (
-    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <AuthProvider>
-          <InitialLayout />
-        </AuthProvider>
-      </GestureHandlerRootView>
-    </ClerkProvider>
+    <SafeAreaProvider>
+      <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <AuthProvider>
+            <InitialLayout />
+          </AuthProvider>
+        </GestureHandlerRootView>
+      </ClerkProvider>
+    </SafeAreaProvider>
   );
 }

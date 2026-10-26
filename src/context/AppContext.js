@@ -19,6 +19,7 @@ export function AppProvider({ children }) {
   const [alarmTriggered, setAlarmTriggered] = useState(false);
   const [currentDurationMin, setCurrentDurationMin] = useState(null);
   const [journeyStarted, setJourneyStarted] = useState(false);
+  const [hasSpeedExceeded2mps, setHasSpeedExceeded2mps] = useState(false);
   const [selectedRingtone, setSelectedRingtone] = useState(DEFAULT_RINGTONE);
 
   // App Settings
@@ -66,6 +67,7 @@ export function AppProvider({ children }) {
     alarmTriggered, setAlarmTriggered,
     currentDurationMin, setCurrentDurationMin,
     journeyStarted, setJourneyStarted,
+    hasSpeedExceeded2mps, setHasSpeedExceeded2mps,
     selectedRingtone, setSelectedRingtone,
     isVoiceEnabled, setIsVoiceEnabled,
     isDarkMode, setIsDarkMode,

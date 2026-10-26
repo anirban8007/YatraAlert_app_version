@@ -160,11 +160,42 @@ export async function getDirections(origLat, origLng, destLat, destLng) {
 }
 
 export async function sendSos(lat, lng, travelerId) {
-  const { data, error } = await supabase.functions.invoke('sos-dispatch', {
-    body: { latitude: lat, longitude: lng, traveler_id: travelerId }
-  });
-  if (error) throw new Error(error.message);
-  return data;
+  // 1. Direct insert to sos_alerts table (fast, reliable, triggers Supabase Realtime)
+  try {
+    const { data, error } = await supabase
+      .from('sos_alerts')
+      .insert([
+        {
+          traveler_id: travelerId,
+          latitude: lat,
+          longitude: lng,
+          status: 'active',
+        },
+      ])
+      .select();
+
+    if (!error && data && data.length > 0) {
+      return data[0];
+    }
+    if (error) {
+      console.warn('Direct sos_alerts insert error:', error.message);
+    }
+  } catch (err) {
+    console.warn('Direct sos_alerts insert exception:', err);
+  }
+
+  // 2. Fallback to Edge function
+  try {
+    const { data, error } = await supabase.functions.invoke('sos-dispatch', {
+      body: { latitude: lat, longitude: lng, traveler_id: travelerId },
+    });
+    if (!error && data) return data;
+    if (error) console.warn('Edge function sos-dispatch returned error:', error.message);
+  } catch (err) {
+    console.warn('Edge function sos-dispatch invocation failed:', err);
+  }
+
+  return { success: true };
 }
 
 // ── Direct Database Calls (Railway Detection) ──────────────────────

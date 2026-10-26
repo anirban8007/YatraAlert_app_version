@@ -20,6 +20,8 @@ import { useTrainJourney } from '../hooks/useTrainJourney';
 // API & Storage
 import { getDirections } from '../utils/api';
 import { setJSON } from '../utils/storage';
+import { distanceM } from '../utils/haversine';
+import { getRouteProgress } from '../utils/routeProgress';
 
 // UI Components
 import YatraMap from '../components/MapView';
@@ -39,18 +41,101 @@ export default function HomeScreen() {
     alarmSet, setAlarmSet,
     alarmTriggered, setAlarmTriggered,
     alarmMinutes,
+    hasSpeedExceeded2mps, setHasSpeedExceeded2mps,
   } = useApp();
 
-  // GPS Location Updates
-  useGpsTracking((location) => {
-    setCurrentLat(location.latitude);
-    setCurrentLng(location.longitude);
-  });
-  
   const { avgSpeed, isMoving } = useMotionTracker();
 
   // Mode Selection: 'road' | 'train'
   const [travelMode, setTravelMode] = useState('road');
+
+  // References for route progress tracking and rerouting debouncing
+  const lastRerouteTime = useRef(0);
+  const lastRerouteLoc = useRef(null);
+  const isReroutingRef = useRef(false);
+
+  // References for route stability and ETA calculation (Problem 3)
+  const fullRouteCoordsRef = useRef([]);
+  const initialDistanceKmRef = useRef(null);
+  const initialDurationMinRef = useRef(null);
+  const lastProgressSegIdxRef = useRef(0);
+  const consecutiveAlarmTriggersRef = useRef(0);
+
+  // GPS Location Updates, Live Blue Path Trimming & Off-Route Recalculation
+  useGpsTracking((location) => {
+    const lat = location.latitude;
+    const lng = location.longitude;
+    const speed = location.speed; // m/s from native GPS device
+
+    setCurrentLat(lat);
+    setCurrentLng(lng);
+
+    // 1. Initial 2 m/s movement detection for alarm activation
+    // 2 m/s = 7.2 km/h
+    const currentSpeedKmh = (speed !== null && speed !== undefined && speed >= 0) ? speed * 3.6 : avgSpeed;
+    if ((speed !== null && speed !== undefined && speed >= 2.0) || currentSpeedKmh >= 7.2) {
+      if (!hasSpeedExceeded2mps) {
+        setHasSpeedExceeded2mps(true);
+      }
+    }
+
+    // 2. Dynamic Route Updating and Off-Route Rerouting (Problem 3: Stable, Smooth ETA)
+    const masterRoute = fullRouteCoordsRef.current.length >= 2 ? fullRouteCoordsRef.current : routeCoords;
+
+    if (travelMode === 'road' && destLat && destLng && masterRoute && masterRoute.length >= 2) {
+      const progress = getRouteProgress(
+        { latitude: lat, longitude: lng },
+        masterRoute,
+        55,
+        lastProgressSegIdxRef.current
+      );
+
+      lastProgressSegIdxRef.current = progress.segmentIndex;
+
+      if (progress.isOffRoute) {
+        // Traveller has deviated / changed route -> Immediately recalculate!
+        const now = Date.now();
+        const distFromLastReroute = lastRerouteLoc.current
+          ? distanceM(lat, lng, lastRerouteLoc.current.lat, lastRerouteLoc.current.lng)
+          : Infinity;
+
+        // Debounce rerouting requests (minimum 4 seconds apart and 25m movement)
+        if (now - lastRerouteTime.current > 4000 && distFromLastReroute > 25 && !isReroutingRef.current) {
+          lastRerouteTime.current = now;
+          lastRerouteLoc.current = { lat, lng };
+          isReroutingRef.current = true;
+          fetchRoadRoute(destLat, destLng, lat, lng).finally(() => {
+            isReroutingRef.current = false;
+          });
+        }
+      } else {
+        // Traveller is following the route -> Trim the visual path from current position
+        if (progress.trimmedCoords && progress.trimmedCoords.length >= 2) {
+          setRouteCoords(progress.trimmedCoords);
+        }
+
+        if (progress.remainingDistanceKm) {
+          setRouteDistance(progress.remainingDistanceKm);
+
+          // Stable ETA: Scale remaining duration based on remaining route distance vs initial distance
+          // Prevents wild fluctuations when vehicle speed temporarily changes
+          const initDist = initialDistanceKmRef.current || parseFloat(progress.remainingDistanceKm) || 1;
+          const initDur = initialDurationMinRef.current || 30;
+          const remDist = parseFloat(progress.remainingDistanceKm);
+
+          const progressRatio = Math.max(0, Math.min(1.2, remDist / initDist));
+          const remainingMin = Math.max(1, Math.round(progressRatio * initDur));
+
+          setCurrentDurationMin(remainingMin);
+          setRouteTime(
+            remainingMin >= 60
+              ? `${Math.floor(remainingMin / 60)}h ${remainingMin % 60}min`
+              : `${remainingMin} min`
+          );
+        }
+      }
+    }
+  });
 
   // Railway Detection (30-40 km regional scan + proximity warnings)
   const { 
@@ -108,30 +193,46 @@ export default function HomeScreen() {
   // ── Watch the ETA and Distance to Trigger Alarm ──────────────
   useEffect(() => {
     if (alarmSet && !alarmTriggered) {
-      let shouldTrigger = false;
-
-      // 1. Primary: ETA Duration check (e.g. within user selected lead mins)
-      if (currentDurationMin !== null && currentDurationMin !== undefined) {
-        if (currentDurationMin <= alarmMinutes) {
-          shouldTrigger = true;
-        }
+      // 1. Mandatory requirement: Alarm will not trigger till initial 2 m/s speed is detected
+      if (!hasSpeedExceeded2mps) {
+        consecutiveAlarmTriggersRef.current = 0;
+        return;
       }
 
-      // 2. Fail-Safe: Direct GPS Distance check (guarantees alarm fires even during complete network loss)
-      if (!shouldTrigger && currentLat && currentLng && destLat && destLng) {
-        const R = 6371;
-        const dLat = (destLat - currentLat) * (Math.PI / 180);
-        const dLon = (destLng - currentLng) * (Math.PI / 180);
-        const a =
-          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(currentLat * (Math.PI / 180)) * Math.cos(destLat * (Math.PI / 180)) *
-          Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const straightDistKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      let shouldTrigger = false;
 
-        // Lead distance fallback (min 800m, or estimated km for alarmMinutes)
-        const leadDistKm = Math.max(0.8, (alarmMinutes / 60) * 30);
+      // Distance sanity check:
+      // Verify traveller is physically within reachable distance before triggering alarm.
+      // (e.g. 5 min alarm requires user to actually be within ~6 km)
+      const straightDistKm = (currentLat && currentLng && destLat && destLng)
+        ? distanceM(currentLat, currentLng, destLat, destLng) / 1000
+        : null;
+
+      // Generous physical upper bound based on highway speed (75 km/h) + buffer
+      const maxPlausibleDistKm = Math.max(1.5, (alarmMinutes / 60) * 75 + 1.0);
+      const isWithinPhysicalRange = straightDistKm === null || straightDistKm <= maxPlausibleDistKm;
+
+      // 2. Primary: ETA Duration check (rings x minutes before arrival)
+      if (currentDurationMin !== null && currentDurationMin !== undefined) {
+        if (currentDurationMin <= alarmMinutes && isWithinPhysicalRange) {
+          consecutiveAlarmTriggersRef.current += 1;
+          // Require 2 consecutive confirmations to filter single-tick anomalies
+          if (consecutiveAlarmTriggersRef.current >= 2) {
+            shouldTrigger = true;
+          }
+        } else {
+          consecutiveAlarmTriggersRef.current = 0;
+        }
+      } else if (currentLat && currentLng && destLat && destLng) {
+        // 3. Fail-Safe: Direct GPS Distance check ONLY when ETA Duration is null/unknown (e.g. offline)
+        const leadDistKm = (alarmMinutes / 60) * 25; // 25 km/h estimate
         if (straightDistKm <= leadDistKm) {
-          shouldTrigger = true;
+          consecutiveAlarmTriggersRef.current += 1;
+          if (consecutiveAlarmTriggersRef.current >= 2) {
+            shouldTrigger = true;
+          }
+        } else {
+          consecutiveAlarmTriggersRef.current = 0;
         }
       }
 
@@ -141,8 +242,10 @@ export default function HomeScreen() {
           setShowAlarmOverlay(true); // Show the full-screen alarm & ringtone
         });
       }
+    } else {
+      consecutiveAlarmTriggersRef.current = 0;
     }
-  }, [currentDurationMin, alarmSet, alarmTriggered, alarmMinutes, currentLat, currentLng, destLat, destLng, setAlarmTriggered]);
+  }, [currentDurationMin, alarmSet, alarmTriggered, alarmMinutes, hasSpeedExceeded2mps, currentLat, currentLng, destLat, destLng, setAlarmTriggered]);
 
   // ── Safe Wake Lock (Prevents Crash) ────────────────────────
   useEffect(() => {
@@ -174,14 +277,21 @@ export default function HomeScreen() {
   });
 
   // ── Fetch Road Route Helper ──────────────────────────────────
-  const fetchRoadRoute = useCallback(async (targetLat, targetLng) => {
-    if (!currentLat || !currentLng) return;
+  const fetchRoadRoute = useCallback(async (targetLat, targetLng, originLat = null, originLng = null) => {
+    const fromLat = originLat ?? currentLat;
+    const fromLng = originLng ?? currentLng;
+    if (!fromLat || !fromLng || !targetLat || !targetLng) return;
     setIsRouting(true);
     try {
-      const data = await getDirections(currentLat, currentLng, targetLat, targetLng);
+      const data = await getDirections(fromLat, fromLng, targetLat, targetLng);
       if (data.geometry && data.geometry.coordinates) {
         const formattedCoords = data.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
         setRouteCoords(formattedCoords);
+
+        fullRouteCoordsRef.current = formattedCoords;
+        initialDistanceKmRef.current = parseFloat(data.distance_km) || 1;
+        initialDurationMinRef.current = data.duration_min || 1;
+        lastProgressSegIdxRef.current = 0;
 
         setRouteDistance(data.distance_km);
         setRouteTime(data.time_str);
@@ -204,13 +314,13 @@ export default function HomeScreen() {
       }
     } catch (e) {
       console.error("Routing Error", e);
-      alert("Could not fetch route. Try again.");
     }
     setIsRouting(false);
   }, [currentLat, currentLng, setCurrentDurationMin, setRouteCoords]);
 
   // ── Search Destination Handler ─────────────────────────────
   const handleSelectDestination = async (location) => {
+    setHasSpeedExceeded2mps(false); // Reset speed requirement for new search
     setDestLat(location.lat);
     setDestLng(location.lng);
     setDestName(location.label);
@@ -269,6 +379,14 @@ export default function HomeScreen() {
 
   const clearRoute = () => {
     lastRoutedDest.current = null;
+    lastRerouteLoc.current = null;
+    lastRerouteTime.current = 0;
+    fullRouteCoordsRef.current = [];
+    initialDistanceKmRef.current = null;
+    initialDurationMinRef.current = null;
+    lastProgressSegIdxRef.current = 0;
+    consecutiveAlarmTriggersRef.current = 0;
+    setHasSpeedExceeded2mps(false);
     setDestLat(null); setDestLng(null); setDestName(null); setRouteCoords([]);
     setRouteDistance(null); setRouteTime(null); setCurrentDurationMin(null);
     setAlarmSet(false);

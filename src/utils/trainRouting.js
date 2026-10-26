@@ -12,87 +12,61 @@ export function formatDuration(minutes) {
   return `${min} min`;
 }
 
+// Curated regional railway stations for fast instant resolution & offline fallback
+const REGIONAL_STATIONS = [
+  { name: 'Barasat Junction', lat: 22.72419, lng: 88.48344 },
+  { name: 'Hridaypur', lat: 22.71100, lng: 88.47000 },
+  { name: 'Madhyamgram', lat: 22.69478, lng: 88.45302 },
+  { name: 'New Barrackpore', lat: 22.68200, lng: 88.44100 },
+  { name: 'Bisharpara Kodalia', lat: 22.67668, lng: 88.43495 },
+  { name: 'Birati', lat: 22.66432, lng: 88.42750 },
+  { name: 'Durganagar', lat: 22.65050, lng: 88.41922 },
+  { name: 'Dum Dum Cantonment', lat: 22.63649, lng: 88.41202 },
+  { name: 'Dum Dum Junction', lat: 22.62065, lng: 88.39328 },
+  { name: 'Bidhannagar Road', lat: 22.58550, lng: 88.38600 },
+  { name: 'Sealdah', lat: 22.56700, lng: 88.37100 },
+  { name: 'Howrah Junction', lat: 22.58390, lng: 88.34260 },
+  { name: 'Dattapukur', lat: 22.76870, lng: 88.54014 },
+  { name: 'Bira', lat: 22.78975, lng: 88.57223 },
+  { name: 'Guma', lat: 22.81200, lng: 88.61300 },
+  { name: 'Ashoknagar Road', lat: 22.82500, lng: 88.63500 },
+  { name: 'Habra', lat: 22.83600, lng: 88.66000 },
+  { name: 'Bongaon Junction', lat: 23.04400, lng: 88.82800 },
+  { name: 'Barrackpore', lat: 22.76300, lng: 88.37500 },
+  { name: 'Naihati Junction', lat: 22.89000, lng: 88.42000 },
+  { name: 'Sodpur', lat: 22.69964, lng: 88.38230 },
+  { name: 'Agarpara', lat: 22.68288, lng: 88.38536 },
+  { name: 'Belgharia', lat: 22.66136, lng: 88.38921 },
+];
+
 /**
- * Finds the nearest railway station to given coordinates within a 30-40+ km radius.
- * Priority: 1. Komoot Photon API -> 2. Nominatim Bounded Search -> 3. Supabase RPC checkRailways
+ * Finds the nearest railway station to given coordinates within a radius.
+ * Priority: 1. Nominatim Bounded Railway Search -> 2. Komoot Photon with railway tag -> 3. Regional Station Directory -> 4. Supabase DB RPC
  */
 export async function findNearestStation(lat, lng, radiusKm = 10) {
   if (!lat || !lng) return null;
 
   const maxMeters = radiusKm * 1000;
-  // 1 degree latitude ~ 111 km. boxDelta matches the radius in degrees
-  const boxDelta = Math.max(0.2, parseFloat((radiusKm / 111).toFixed(3)));
+  const deltaLat = Math.max(0.04, radiusKm / 111);
+  const radLat = (lat * Math.PI) / 180;
+  const cosLat = Math.max(0.2, Math.cos(radLat));
+  const deltaLng = Math.max(0.04, radiusKm / (111 * cosLat));
 
-  // 1. Komoot Photon API
+  // 1. Primary: Nominatim Bounded Railway Search (Strictly class=railway, type=station/halt)
   try {
-    const photonUrl = `https://photon.komoot.io/api/?q=railway+station&limit=15&lat=${lat}&lon=${lng}`;
-    const res = await fetch(photonUrl);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.features && data.features.length > 0) {
-        const candidates = data.features
-          .filter(f => {
-            const p = f.properties || {};
-            const name = (p.name || '').toLowerCase();
-            // Exclude flyovers, highways, roads
-            if (p.osm_key === 'highway' || name.includes('flyover') || (name.includes('bridge') && !name.includes('station'))) {
-              return false;
-            }
-            // Require station indicators
-            return (
-              p.osm_key === 'railway' ||
-              p.osm_value === 'station' ||
-              p.osm_value === 'halt' ||
-              (p.osm_key === 'landuse' && p.osm_value === 'railway') ||
-              name.includes('railway station') ||
-              name.includes('terminus') ||
-              name.includes('junction') ||
-              name.includes('station')
-            );
-          })
-          .map(f => {
-            const coords = f.geometry?.coordinates;
-            if (!coords || coords.length < 2) return null;
-            const cLng = coords[0];
-            const cLat = coords[1];
-            const dist = distanceM(lat, lng, cLat, cLng);
-            const rawName = f.properties.name || 'Railway Station';
-            return {
-              name: rawName,
-              lat: cLat,
-              lng: cLng,
-              distanceMeters: Math.round(dist),
-              distanceKm: (dist / 1000).toFixed(1),
-            };
-          })
-          .filter(Boolean);
-
-        if (candidates.length > 0) {
-          candidates.sort((a, b) => a.distanceMeters - b.distanceMeters);
-          if (candidates[0].distanceMeters <= maxMeters) {
-            return candidates[0];
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('Photon nearest station lookup failed, trying fallback:', e);
-  }
-
-  // 2. Nominatim Bounded Search Fallback (~30-40 km bounding box)
-  try {
-    const nomUrl = `https://nominatim.openstreetmap.org/search?q=railway+station&format=json&limit=10&countrycodes=in&viewbox=${lng - boxDelta},${lat + boxDelta},${lng + boxDelta},${lat - boxDelta}&bounded=1`;
+    const nomUrl = `https://nominatim.openstreetmap.org/search?q=station&format=json&limit=25&countrycodes=in&viewbox=${(lng - deltaLng).toFixed(5)},${(lat + deltaLat).toFixed(5)},${(lng + deltaLng).toFixed(5)},${(lat - deltaLat).toFixed(5)}&bounded=1`;
     const res = await fetch(nomUrl, { headers: { 'User-Agent': 'YatraAlertApp/1.0' } });
     if (res.ok) {
       const list = await res.json();
       if (Array.isArray(list) && list.length > 0) {
         const candidates = list
+          .filter(x => x.class === 'railway' && (x.type === 'station' || x.type === 'halt'))
           .map(item => {
             const cLat = parseFloat(item.lat);
             const cLng = parseFloat(item.lon);
             if (isNaN(cLat) || isNaN(cLng)) return null;
             const dist = distanceM(lat, lng, cLat, cLng);
-            const name = item.name || item.display_name?.split(',')?.[0] || 'Railway Station';
+            const name = item.name || item.display_name?.split(',')?.[0]?.trim() || 'Railway Station';
             return {
               name,
               lat: cLat,
@@ -101,7 +75,8 @@ export async function findNearestStation(lat, lng, radiusKm = 10) {
               distanceKm: (dist / 1000).toFixed(1),
             };
           })
-          .filter(Boolean);
+          .filter(Boolean)
+          .filter(s => s.distanceMeters <= maxMeters);
 
         if (candidates.length > 0) {
           candidates.sort((a, b) => a.distanceMeters - b.distanceMeters);
@@ -113,7 +88,62 @@ export async function findNearestStation(lat, lng, radiusKm = 10) {
     console.warn('Nominatim nearest station lookup failed:', e);
   }
 
-  // 3. Supabase Database RPC Fallback (scans up to maxMeters = 40 km)
+  // 2. Secondary: Komoot Photon with osm_tag=railway:station
+  try {
+    const photonUrl = `https://photon.komoot.io/api/?q=station&limit=25&lat=${lat}&lon=${lng}&osm_tag=railway:station`;
+    const res = await fetch(photonUrl);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.features && data.features.length > 0) {
+        const candidates = data.features
+          .map(f => {
+            const coords = f.geometry?.coordinates;
+            if (!coords || coords.length < 2) return null;
+            const cLng = coords[0];
+            const cLat = coords[1];
+            const dist = distanceM(lat, lng, cLat, cLng);
+            const rawName = f.properties?.name || 'Railway Station';
+            return {
+              name: rawName,
+              lat: cLat,
+              lng: cLng,
+              distanceMeters: Math.round(dist),
+              distanceKm: (dist / 1000).toFixed(1),
+            };
+          })
+          .filter(Boolean)
+          .filter(s => s.distanceMeters <= maxMeters);
+
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => a.distanceMeters - b.distanceMeters);
+          return candidates[0];
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Photon nearest station lookup failed, trying fallback:', e);
+  }
+
+  // 3. Fallback: Fast Regional Station Catalog
+  const nearbyCatalog = REGIONAL_STATIONS
+    .map(st => {
+      const dist = distanceM(lat, lng, st.lat, st.lng);
+      return {
+        name: st.name,
+        lat: st.lat,
+        lng: st.lng,
+        distanceMeters: Math.round(dist),
+        distanceKm: (dist / 1000).toFixed(1),
+      };
+    })
+    .filter(s => s.distanceMeters <= maxMeters)
+    .sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+  if (nearbyCatalog.length > 0) {
+    return nearbyCatalog[0];
+  }
+
+  // 4. Supabase Database RPC Fallback
   try {
     const dbResult = await checkRailways(lat, lng, maxMeters);
     if (dbResult && dbResult.stations && dbResult.stations.length > 0) {
@@ -130,7 +160,7 @@ export async function findNearestStation(lat, lng, radiusKm = 10) {
     console.warn('Supabase railway check failed:', e);
   }
 
-  // 4. Expanded Search Fallback (auto-expand to 60 km if needed)
+  // 5. Expanded Search Fallback (auto-expand to 60 km if needed)
   if (radiusKm < 60) {
     return findNearestStation(lat, lng, 60);
   }

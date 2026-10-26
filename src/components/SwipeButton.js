@@ -28,6 +28,8 @@ export default function SwipeButton({ onSwipeSuccess, text = "Slide to Set" }) {
   const startX = useSharedValue(0);
 
   const panGesture = Gesture.Pan()
+    .activeOffsetX([-10, 10])
+    .failOffsetY([-15, 15])
     .onStart(() => {
       startX.value = X.value;
     })

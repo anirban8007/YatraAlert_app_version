@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -51,36 +51,27 @@ export default function StationsSavedScreen() {
   const scanStations = useCallback(async (radius = radiusKm) => {
     setIsScanning(true);
     try {
-      // 1. Acquire true satellite GPS location with High accuracy
+      // 1. Acquire true satellite GPS location
       let lat = currentLat;
       let lng = currentLng;
 
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          // Immediately check last known position as baseline
-          const lastLoc = await Location.getLastKnownPositionAsync({});
-          if (lastLoc?.coords) {
-            lat = lastLoc.coords.latitude;
-            lng = lastLoc.coords.longitude;
-            if (setCurrentLat) setCurrentLat(lat);
-            if (setCurrentLng) setCurrentLng(lng);
+      if (!lat || !lng) {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const loc = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            if (loc?.coords) {
+              lat = loc.coords.latitude;
+              lng = loc.coords.longitude;
+              if (setCurrentLat) setCurrentLat(lat);
+              if (setCurrentLng) setCurrentLng(lng);
+            }
           }
-
-          // Query fresh high-precision GPS satellites
-          const loc = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
-            timeInterval: 4000,
-          });
-          if (loc?.coords) {
-            lat = loc.coords.latitude;
-            lng = loc.coords.longitude;
-            if (setCurrentLat) setCurrentLat(lat);
-            if (setCurrentLng) setCurrentLng(lng);
-          }
+        } catch (locErr) {
+          console.warn('GPS lock warning:', locErr);
         }
-      } catch (locErr) {
-        console.warn('High accuracy GPS lock warning, using fallback coords:', locErr);
       }
 
       if (!lat || !lng) {
@@ -117,11 +108,6 @@ export default function StationsSavedScreen() {
                 const parts = (x.display_name || '').split(',');
                 const city = parts[parts.length - 3]?.trim() || parts[1]?.trim() || 'Indian Railways';
                 const straightKm = (d / 1000).toFixed(1);
-                const roadKm = ((d * 1.25) / 1000).toFixed(1);
-                const distanceLabel =
-                  d < 1000
-                    ? `${Math.round(d)} m away (~${Math.round(d * 1.25)} m road)`
-                    : `${straightKm} km (est. ~${roadKm} km by road)`;
                 return {
                   id: String(x.place_id || Math.random()),
                   name: rawName,
@@ -130,7 +116,6 @@ export default function StationsSavedScreen() {
                   lng: sLng,
                   distanceMeters: Math.round(d),
                   distanceKm: straightKm,
-                  distanceLabel,
                 };
               })
               .filter((s) => s.distanceMeters <= maxMeters);
@@ -140,62 +125,32 @@ export default function StationsSavedScreen() {
         console.warn('Nominatim station scan failed:', nomErr);
       }
 
-      // 3. Fallback: Photon API with strict exclusion of post offices, roads, and non-train stations
+      // 3. Fallback: Photon API with strict exclusion and distance bounding
       if (foundStations.length === 0) {
         try {
-          const photonUrl = `https://photon.komoot.io/api/?q=railway+station&limit=30&lat=${lat}&lon=${lng}`;
+          const photonUrl = `https://photon.komoot.io/api/?q=station&limit=30&lat=${lat}&lon=${lng}&osm_tag=railway:station`;
           const photonRes = await fetch(photonUrl);
           if (photonRes.ok) {
             const pData = await photonRes.json();
             if (pData?.features) {
               foundStations = pData.features
-                .filter((f) => {
-                  const p = f.properties || {};
-                  const name = (p.name || '').toLowerCase();
-                  if (
-                    p.osm_key === 'highway' ||
-                    p.osm_key === 'amenity' ||
-                    p.osm_key === 'military' ||
-                    p.osm_key === 'tourism' ||
-                    p.osm_key === 'leisure' ||
-                    name.includes('flyover') ||
-                    name.includes('road') ||
-                    name.includes('post office') ||
-                    name.includes('air force') ||
-                    name.includes('bus')
-                  ) {
-                    return false;
-                  }
-                  return (
-                    p.osm_key === 'railway' ||
-                    p.osm_value === 'station' ||
-                    p.osm_value === 'halt' ||
-                    (p.osm_key === 'landuse' && p.osm_value === 'railway') ||
-                    name.includes('station') ||
-                    name.includes('junction')
-                  );
-                })
                 .map((f) => {
                   const coords = f.geometry?.coordinates;
                   if (!coords || coords.length < 2) return null;
                   const sLng = coords[0];
                   const sLat = coords[1];
                   const d = distanceM(lat, lng, sLat, sLng);
+                  const rawName = f.properties?.name || 'Railway Station';
+                  const city = f.properties?.city || f.properties?.district || 'Indian Railways';
                   const straightKm = (d / 1000).toFixed(1);
-                  const roadKm = ((d * 1.25) / 1000).toFixed(1);
-                  const distanceLabel =
-                    d < 1000
-                      ? `${Math.round(d)} m away (~${Math.round(d * 1.25)} m road)`
-                      : `${straightKm} km (est. ~${roadKm} km by road)`;
                   return {
                     id: String(f.properties?.osm_id || Math.random()),
-                    name: f.properties?.name || 'Railway Station',
-                    city: f.properties?.city || f.properties?.district || 'Indian Railways',
+                    name: rawName,
+                    city,
                     lat: sLat,
                     lng: sLng,
                     distanceMeters: Math.round(d),
                     distanceKm: straightKm,
-                    distanceLabel,
                   };
                 })
                 .filter(Boolean)
@@ -341,6 +296,27 @@ export default function StationsSavedScreen() {
     setIsAddingPlace(false);
   };
 
+  // Dynamically compute live distance from currentLat, currentLng and sort
+  const displayStations = useMemo(() => {
+    if (!stations || stations.length === 0) return [];
+    const lat = currentLat;
+    const lng = currentLng;
+
+    return stations
+      .map((st) => {
+        const d = (lat && lng) ? distanceM(lat, lng, st.lat, st.lng) : st.distanceMeters;
+        const straightKm = (d / 1000).toFixed(1);
+        const label = d < 1000 ? `${Math.round(d)} m away` : `${straightKm} km from you`;
+        return {
+          ...st,
+          liveDistanceMeters: Math.round(d),
+          liveDistanceKm: straightKm,
+          liveDistanceLabel: label,
+        };
+      })
+      .sort((a, b) => a.liveDistanceMeters - b.liveDistanceMeters);
+  }, [stations, currentLat, currentLng]);
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Screen Header */}
@@ -409,7 +385,7 @@ export default function StationsSavedScreen() {
               <ActivityIndicator size="large" color="#2563EB" />
               <Text style={styles.scanningText}>Scanning railway radar within {radiusKm} km...</Text>
             </View>
-          ) : stations.length === 0 ? (
+          ) : displayStations.length === 0 ? (
             <View style={styles.centerBox}>
               <Text style={{ fontSize: 36, marginBottom: 8 }}>🚆</Text>
               <Text style={styles.emptyTitle}>No Stations Found within {radiusKm} km</Text>
@@ -417,7 +393,7 @@ export default function StationsSavedScreen() {
             </View>
           ) : (
             <FlatList
-              data={stations}
+              data={displayStations}
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.listContent}
               renderItem={({ item, index }) => (
@@ -431,7 +407,7 @@ export default function StationsSavedScreen() {
                       {item.name}
                     </Text>
                     <Text style={styles.stationCity}>{item.city}</Text>
-                    <Text style={styles.stationDistance}>📍 {item.distanceLabel || `${item.distanceKm} km from you`}</Text>
+                    <Text style={styles.stationDistance}>📍 {item.liveDistanceLabel}</Text>
                   </View>
 
                   <TouchableOpacity
